@@ -19,6 +19,8 @@ export interface LoginResponse {
     /** 0 = user, 1 = domain-admin, 2 = root-admin */
     type: string
     registered: string
+    errorcode?: number
+    errortext?: string
   }
 }
 

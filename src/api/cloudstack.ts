@@ -127,11 +127,15 @@ export class CloudStackClient {
       throw new Error(data.errorresponse.errortext || `Erro de autenticação (${res.status})`)
     }
 
+    const lr = (data as LoginResponse).loginresponse
+    if (lr?.errorcode) {
+      throw new Error(lr.errortext || `Erro de autenticação (${lr.errorcode})`)
+    }
+
     if (!res.ok) {
       throw new Error(`Erro HTTP ${res.status}: resposta inesperada do servidor`)
     }
 
-    const lr = (data as LoginResponse).loginresponse
     if (!lr?.sessionkey) {
       throw new Error('Resposta inválida: sessionkey não encontrada')
     }
