@@ -108,15 +108,32 @@ export class CloudStackClient {
       credentials: 'include',
     })
 
-    if (!res.ok) throw new Error(`Erro HTTP ${res.status}: ${res.statusText}`)
+    // Sempre lê o body antes de checar status —
+    // CloudStack pode retornar HTTP 4xx/5xx com JSON de erro detalhado
+    let data: unknown
+    try {
+      data = await res.json()
+    } catch {
+      // Body não é JSON (ex: HTML de erro do proxy/WAF)
+      throw new Error(
+        `Erro ${res.status} ao conectar com o servidor. Verifique se o serviço está acessível.`,
+      )
+    }
 
-    const data: LoginResponse | CloudStackError = await res.json()
-
+    // Erro com detalhes do CloudStack (pode vir em qualquer status HTTP)
     if (isErrorResponse(data)) {
-      throw new Error(data.errorresponse.errortext || 'Falha no login')
+      throw new Error(data.errorresponse.errortext || `Erro de autenticação (${res.status})`)
+    }
+
+    if (!res.ok) {
+      throw new Error(`Erro HTTP ${res.status}: resposta inesperada do servidor`)
     }
 
     const lr = (data as LoginResponse).loginresponse
+    if (!lr?.sessionkey) {
+      throw new Error('Resposta inválida: sessionkey não encontrada')
+    }
+
     this.config.sessionKey = lr.sessionkey
 
     return {
