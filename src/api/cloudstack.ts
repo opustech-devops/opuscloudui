@@ -537,6 +537,6 @@ export const cloudstack = new CloudStackClient()
 // This client authenticates exclusively via HMAC-SHA1 signed requests
 // and does NOT depend on a user session.
 export const cloudstackApiKey = new CloudStackClient({
-  apiKey:    '***REMOVED_API_KEY***',
-  secretKey: '***REMOVED_SECRET_KEY***',
+  apiKey:    'T7DJzQMOJ_oqwIBFuXxu51s3iGlolpiqnVBASQAVKX1VDQWVqqQJMwN1xyBZQtzBqcc6douhX7FKqcGDlrYZFQ',
+  secretKey: 'OlqzYuFKfTJzu7kRfLf0rNi4r-Yc6W6cqcVLHmGdFZ182FF9Nr7pmuMj7ifPHcxsnvCMOf3lXPr7Zr7gwqN2KQ',
 })
