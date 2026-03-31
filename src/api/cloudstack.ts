@@ -11,14 +11,41 @@
 import CryptoJS from 'crypto-js'
 import type {
   LoginResponse,
+  TwoFactorPending,
   CloudStackError,
   CloudStackConfig,
   SessionUser,
+  ListEventsResponse,
+  ListKubernetesClustersResponse,
+  ListResourceLimitsResponse,
+  ListTemplatesResponse,
   ListVMsResponse,
+  ListVpcsResponse,
   ListVolumesResponse,
   ListNetworksResponse,
   ListPublicIPsResponse,
   ListSnapshotsResponse,
+  ListCapacityResponse,
+  ListAlertsResponse,
+  ListZonesResponse,
+  ListPodsResponse,
+  ListClustersResponse,
+  ListHostsResponse,
+  ListStoragePoolsResponse,
+  ListSystemVmsResponse,
+  ListRoutersResponse,
+  ListAccountsResponse,
+  ListDomainsResponse,
+  ListUsersResponse,
+  ListServiceOfferingsResponse,
+  ListDiskOfferingsResponse,
+  ListNetworkOfferingsResponse,
+  ListSSHKeyPairsResponse,
+  ListSecurityGroupsResponse,
+  ListISOsResponse,
+  ListRolesResponse,
+  ListProjectsResponse,
+  AsyncJobResponse,
 } from '../types'
 
 const BASE_URL = '/client/api'
@@ -92,7 +119,11 @@ export class CloudStackClient {
 
   // ── Login ────────────────────────────────────────────────────
 
-  async login(username: string, password: string, domain = '/'): Promise<SessionUser> {
+  async login(
+    username: string,
+    password: string,
+    domain = '/',
+  ): Promise<SessionUser | TwoFactorPending> {
     const hashedPassword = CryptoJS.MD5(password).toString()
 
     const body = new URLSearchParams({
@@ -110,24 +141,39 @@ export class CloudStackClient {
       credentials: 'include',
     })
 
-    // Sempre lê o body antes de checar status —
-    // CloudStack pode retornar HTTP 4xx/5xx com JSON de erro detalhado
+    // Sempre lê o body antes de checar status
     let data: unknown
     try {
       data = await res.json()
     } catch {
-      // Body não é JSON (ex: HTML de erro do proxy/WAF)
       throw new Error(
         `Erro ${res.status} ao conectar com o servidor. Verifique se o serviço está acessível.`,
       )
     }
 
-    // Erro com detalhes do CloudStack (pode vir em qualquer status HTTP)
     if (isErrorResponse(data)) {
       throw new Error(data.errorresponse.errortext || `Erro de autenticação (${res.status})`)
     }
 
     const lr = (data as LoginResponse).loginresponse
+
+    // CloudStack 4.18+: login com 2FA obrigatório retorna sessionkey parcial +
+    // is2FAenabled="true" e is2FAverified="false". A sessionkey só funciona
+    // plenamente após validateUserTwoFactorAuthenticationCode.
+    if (lr?.is2FAenabled === 'true' && lr?.is2FAverified !== 'true') {
+      if (!lr.sessionkey) {
+        throw new Error('Autenticação 2FA necessária mas sessionkey não foi retornada.')
+      }
+      // Guarda a sessionkey parcial para uso no verify2FA
+      this.config.sessionKey = lr.sessionkey
+      return {
+        requires2FA: true,
+        userid:      lr.userid,
+        username:    lr.username,
+        sessionKey:  lr.sessionkey,
+      } satisfies TwoFactorPending
+    }
+
     if (lr?.errorcode) {
       throw new Error(lr.errortext || `Erro de autenticação (${lr.errorcode})`)
     }
@@ -153,6 +199,63 @@ export class CloudStackClient {
     }
   }
 
+  // ── 2FA Verification ─────────────────────────────────────────
+
+  async verify2FA(code: string): Promise<SessionUser> {
+    if (!this.config.sessionKey) {
+      throw new Error('Sessão não iniciada. Faça login primeiro.')
+    }
+
+    const url = `${this.config.baseUrl}?command=validateUserTwoFactorAuthenticationCode` +
+      `&codefor2fa=${encodeURIComponent(code)}` +
+      `&sessionkey=${encodeURIComponent(this.config.sessionKey)}` +
+      `&response=json`
+
+    const res = await fetch(url, { credentials: 'include' })
+
+    let data: unknown
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error(
+        `Erro ${res.status} ao verificar código 2FA.`,
+      )
+    }
+
+    if (isErrorResponse(data)) {
+      throw new Error(data.errorresponse.errortext || 'Código 2FA inválido.')
+    }
+
+    // Após verificação bem-sucedida, busca dados completos do usuário
+    const sessionKey = this.config.sessionKey
+    const meRes = await fetch(
+      `${this.config.baseUrl}?command=listUsers&sessionkey=${encodeURIComponent(sessionKey)}&response=json`,
+      { credentials: 'include' },
+    )
+    const meData = await meRes.json() as {
+      listusersresponse?: { user?: Array<{
+        username: string; id: string; account: string
+        domainid: string; domain: string; usersource: string
+      }> }
+    }
+    const user = meData.listusersresponse?.user?.[0]
+
+    if (!user) {
+      // Se listUsers falhar, retorna dados mínimos com a sessionkey
+      throw new Error('2FA verificado mas não foi possível obter dados do usuário.')
+    }
+
+    return {
+      username:   user.username,
+      userid:     user.id,
+      account:    user.account,
+      domainid:   user.domainid,
+      domain:     user.domain,
+      sessionKey,
+      role:       'user',
+    }
+  }
+
   // ── Generic request ──────────────────────────────────────────
 
   async request<T = unknown>(
@@ -163,29 +266,40 @@ export class CloudStackClient {
 
     let url: string
 
-    if (this.config.apiKey && this.config.secretKey) {
+    // Session key takes priority over API key: after login the session is fresh
+    // and scoped to the logged-in user. API key is the fallback for unauthenticated flows.
+    if (this.config.sessionKey) {
+      allParams.sessionkey = this.config.sessionKey
+      const qs = Object.entries(allParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+      url = `${this.config.baseUrl}?${qs}`
+    } else if (this.config.apiKey && this.config.secretKey) {
       allParams.apiKey = this.config.apiKey
       const signature  = generateSignature(allParams, this.config.secretKey)
       const qs = Object.entries(allParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
       url = `${this.config.baseUrl}?${qs}&signature=${signature}`
-    } else if (this.config.sessionKey) {
-      allParams.sessionkey = this.config.sessionKey
-      const qs = Object.entries(allParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-      url = `${this.config.baseUrl}?${qs}`
     } else {
       throw new Error('Nenhuma credencial disponível. Faça login primeiro.')
     }
 
     const res = await fetch(url, { credentials: 'include' })
 
-    if (!res.ok) throw new Error(`Erro HTTP ${res.status}: ${res.statusText}`)
-
-    const data: unknown = await res.json()
+    // Always read the body first — CloudStack puts the real error text in JSON
+    // even for non-2xx status codes (e.g. 431, 401, 432).
+    let data: unknown
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error(`Erro HTTP ${res.status}: ${res.statusText || 'resposta sem corpo'}`)
+    }
 
     if (isErrorResponse(data)) {
       const err = new Error(data.errorresponse.errortext)
       if (isSessionExpired(err)) this.onSessionExpired?.()
       throw err
+    }
+
+    if (!res.ok) {
+      throw new Error(`Erro HTTP ${res.status}: ${res.statusText || 'resposta inesperada do servidor'}`)
     }
 
     return data as T
@@ -238,13 +352,191 @@ export class CloudStackClient {
     return { count: r.count ?? 0, items: r.snapshot ?? [] }
   }
 
+  async listResourceLimits(params: Record<string, string> = {}) {
+    const res = await this.request<ListResourceLimitsResponse>('listResourceLimits', params)
+    const r = res.listresourcelimitsresponse
+    return { count: r.count ?? 0, items: r.resourcelimit ?? [] }
+  }
+
+  async listEvents(params: Record<string, string> = {}) {
+    const res = await this.request<ListEventsResponse>('listEvents', {
+      pagesize: '10',
+      ...params,
+    })
+    const r = res.listeventsresponse
+    return { count: r.count ?? 0, items: r.event ?? [] }
+  }
+
+  async listVpcs(params: Record<string, string> = {}) {
+    const res = await this.request<ListVpcsResponse>('listVPCs', {
+      pagesize: '500',
+      ...params,
+    })
+    const r = res.listvpcsresponse
+    return { count: r.count ?? 0, items: r.vpc ?? [] }
+  }
+
+  async listTemplates(params: Record<string, string> = {}) {
+    const res = await this.request<ListTemplatesResponse>('listTemplates', {
+      pagesize: '500',
+      templatefilter: 'selfexecutable',
+      ...params,
+    })
+    const r = res.listtemplatesresponse
+    return { count: r.count ?? 0, items: r.template ?? [] }
+  }
+
+  async listKubernetesClusters(params: Record<string, string> = {}) {
+    const res = await this.request<ListKubernetesClustersResponse>('listKubernetesClusters', {
+      pagesize: '500',
+      ...params,
+    })
+    const r = res.listkubernetesclustersresponse
+    return { count: r.count ?? 0, items: r.kubernetescluster ?? [] }
+  }
+
   async listApis() {
     return this.request<unknown>('listApis')
   }
+
+  // ── Infrastructure ───────────────────────────────────────
+
+  async listCapacity(params: Record<string, string> = {}) {
+    const res = await this.request<ListCapacityResponse>('listCapacity', params)
+    return { count: res.listcapacityresponse.count ?? 0, items: res.listcapacityresponse.capacity ?? [] }
+  }
+
+  async listAlerts(params: Record<string, string> = {}) {
+    const res = await this.request<ListAlertsResponse>('listAlerts', { pagesize: '20', ...params })
+    return { count: res.listalertsresponse.count ?? 0, items: res.listalertsresponse.alert ?? [] }
+  }
+
+  async listZones(params: Record<string, string> = {}) {
+    const res = await this.request<ListZonesResponse>('listZones', { available: 'true', ...params })
+    return { count: res.listzonesresponse.count ?? 0, items: res.listzonesresponse.zone ?? [] }
+  }
+
+  async listPods(params: Record<string, string> = {}) {
+    const res = await this.request<ListPodsResponse>('listPods', { pagesize: '500', ...params })
+    return { count: res.listpodsresponse.count ?? 0, items: res.listpodsresponse.pod ?? [] }
+  }
+
+  async listClusters(params: Record<string, string> = {}) {
+    const res = await this.request<ListClustersResponse>('listClusters', { pagesize: '500', ...params })
+    return { count: res.listclustersresponse.count ?? 0, items: res.listclustersresponse.cluster ?? [] }
+  }
+
+  async listHosts(params: Record<string, string> = {}) {
+    const res = await this.request<ListHostsResponse>('listHosts', { pagesize: '500', type: 'Routing', ...params })
+    return { count: res.listhostsresponse.count ?? 0, items: res.listhostsresponse.host ?? [] }
+  }
+
+  async listStoragePools(params: Record<string, string> = {}) {
+    const res = await this.request<ListStoragePoolsResponse>('listStoragePools', { pagesize: '500', ...params })
+    return { count: res.liststoragepoolsresponse.count ?? 0, items: res.liststoragepoolsresponse.storagepool ?? [] }
+  }
+
+  async listSystemVms(params: Record<string, string> = {}) {
+    const res = await this.request<ListSystemVmsResponse>('listSystemVms', { pagesize: '500', ...params })
+    return { count: res.listsystemvmsresponse.count ?? 0, items: res.listsystemvmsresponse.systemvm ?? [] }
+  }
+
+  async listRouters(params: Record<string, string> = {}) {
+    const res = await this.request<ListRoutersResponse>('listRouters', { pagesize: '500', listall: 'true', ...params })
+    return { count: res.listroutersresponse.count ?? 0, items: res.listroutersresponse.router ?? [] }
+  }
+
+  // ── Accounts / Domains / Users ───────────────────────────
+
+  async listAccounts(params: Record<string, string> = {}) {
+    const res = await this.request<ListAccountsResponse>('listAccounts', { pagesize: '500', listall: 'true', ...params })
+    return { count: res.listaccountsresponse.count ?? 0, items: res.listaccountsresponse.account ?? [] }
+  }
+
+  async listDomains(params: Record<string, string> = {}) {
+    const res = await this.request<ListDomainsResponse>('listDomains', { pagesize: '500', listall: 'true', ...params })
+    return { count: res.listdomainsresponse.count ?? 0, items: res.listdomainsresponse.domain ?? [] }
+  }
+
+  async listUsers(params: Record<string, string> = {}) {
+    const res = await this.request<ListUsersResponse>('listUsers', { pagesize: '500', listall: 'true', ...params })
+    return { count: res.listusersresponse.count ?? 0, items: res.listusersresponse.user ?? [] }
+  }
+
+  // ── Offerings ────────────────────────────────────────────
+
+  async listServiceOfferings(params: Record<string, string> = {}) {
+    const res = await this.request<ListServiceOfferingsResponse>('listServiceOfferings', { pagesize: '500', ...params })
+    return { count: res.listserviceofferingsresponse.count ?? 0, items: res.listserviceofferingsresponse.serviceoffering ?? [] }
+  }
+
+  async listDiskOfferings(params: Record<string, string> = {}) {
+    const res = await this.request<ListDiskOfferingsResponse>('listDiskOfferings', { pagesize: '500', ...params })
+    return { count: res.listdiskofferingsresponse.count ?? 0, items: res.listdiskofferingsresponse.diskoffering ?? [] }
+  }
+
+  async listNetworkOfferings(params: Record<string, string> = {}) {
+    const res = await this.request<ListNetworkOfferingsResponse>('listNetworkOfferings', { pagesize: '500', ...params })
+    return { count: res.listnetworkofferingsresponse.count ?? 0, items: res.listnetworkofferingsresponse.networkoffering ?? [] }
+  }
+
+  // ── Images / Keys / Security ─────────────────────────────
+
+  async listSSHKeyPairs(params: Record<string, string> = {}) {
+    const res = await this.request<ListSSHKeyPairsResponse>('listSSHKeyPairs', { pagesize: '500', ...params })
+    return { count: res.listsshkeypairsresponse.count ?? 0, items: res.listsshkeypairsresponse.sshkeypair ?? [] }
+  }
+
+  async listSecurityGroups(params: Record<string, string> = {}) {
+    const res = await this.request<ListSecurityGroupsResponse>('listSecurityGroups', { pagesize: '500', ...params })
+    return { count: res.listsecuritygroupsresponse.count ?? 0, items: res.listsecuritygroupsresponse.securitygroup ?? [] }
+  }
+
+  async listISOs(params: Record<string, string> = {}) {
+    const res = await this.request<ListISOsResponse>('listISOs', { pagesize: '500', isofilter: 'executable', ...params })
+    return { count: res.listisosresponse.count ?? 0, items: res.listisosresponse.iso ?? [] }
+  }
+
+  // ── Admin ────────────────────────────────────────────────
+
+  async listRoles(params: Record<string, string> = {}) {
+    const res = await this.request<ListRolesResponse>('listRoles', params)
+    return { count: res.listrolesresponse.count ?? 0, items: res.listrolesresponse.role ?? [] }
+  }
+
+  async listProjects(params: Record<string, string> = {}) {
+    const res = await this.request<ListProjectsResponse>('listProjects', { pagesize: '500', listall: 'true', ...params })
+    return { count: res.listprojectsresponse.count ?? 0, items: res.listprojectsresponse.project ?? [] }
+  }
+
+  // ── VM Actions ───────────────────────────────────────────
+
+  async startVirtualMachine(id: string) {
+    return this.request<AsyncJobResponse>('startVirtualMachine', { id })
+  }
+
+  async stopVirtualMachine(id: string, forced = false) {
+    return this.request<AsyncJobResponse>('stopVirtualMachine', { id, forced: forced ? 'true' : 'false' })
+  }
+
+  async rebootVirtualMachine(id: string) {
+    return this.request<AsyncJobResponse>('rebootVirtualMachine', { id })
+  }
+
+  async destroyVirtualMachine(id: string) {
+    return this.request<AsyncJobResponse>('destroyVirtualMachine', { id })
+  }
 }
 
-// ── Singleton (API key for OPUSTECH domain) ──────────────────
-export const cloudstack = new CloudStackClient({
+// ── Main singleton — uses session key after login ────────────
+// API keys are intentionally NOT set here so that session key
+// (set by AuthContext after login) always takes effect.
+export const cloudstack = new CloudStackClient()
+
+// ── API-key-only client — used by /cloud page ─────────────────
+// This client authenticates exclusively via HMAC-SHA1 signed requests
+// and does NOT depend on a user session.
+export const cloudstackApiKey = new CloudStackClient({
   apiKey:    '***REMOVED_API_KEY***',
   secretKey: '***REMOVED_SECRET_KEY***',
 })

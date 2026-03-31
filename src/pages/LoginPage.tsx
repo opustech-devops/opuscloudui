@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cloudstack } from '../api/cloudstack'
+import type { TwoFactorPending } from '../types'
 import './LoginPage.css'
 
 // ── Cloud SVG icon ─────────────────────────────────────────
@@ -50,8 +51,15 @@ export default function LoginPage() {
   const [isLoading,  setIsLoading]  = useState(false)
   const [error,      setError]      = useState('')
 
-  const canSubmit = username.trim() && password.trim() && !isLoading
+  // ── 2FA state ─────────────────────────────────────────────────
+  const [twoFactorPending, setTwoFactorPending] = useState<TwoFactorPending | null>(null)
+  const [totpCode,         setTotpCode]         = useState('')
+  const totpRef = useRef<HTMLInputElement>(null)
 
+  const canSubmit   = username.trim() && password.trim() && !isLoading
+  const canVerify2FA = totpCode.trim().length >= 6 && !isLoading
+
+  // ── Step 1: login ─────────────────────────────────────────────
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
@@ -60,12 +68,16 @@ export default function LoginPage() {
     setError('')
 
     try {
-      const user = await cloudstack.login(username.trim(), password, domain.trim() || '/')
+      const result = await cloudstack.login(username.trim(), password, domain.trim() || '/')
 
-      // Persist session
-      localStorage.setItem('opus_session', JSON.stringify(user))
+      if ('requires2FA' in result) {
+        setTwoFactorPending(result)
+        setIsLoading(false)
+        setTimeout(() => totpRef.current?.focus(), 50)
+        return
+      }
 
-      // Navigate to dashboard (future route)
+      localStorage.setItem('opus_session', JSON.stringify(result))
       navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(
@@ -73,6 +85,31 @@ export default function LoginPage() {
           ? err.message
           : 'Erro inesperado. Tente novamente.',
       )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // ── Step 2: verify 2FA ────────────────────────────────────────
+  const handle2FASubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!canVerify2FA) return
+
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const user = await cloudstack.verify2FA(totpCode.trim())
+      localStorage.setItem('opus_session', JSON.stringify(user))
+      navigate('/dashboard', { replace: true })
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Código inválido. Tente novamente.',
+      )
+      setTotpCode('')
+      setTimeout(() => totpRef.current?.focus(), 50)
     } finally {
       setIsLoading(false)
     }
@@ -150,6 +187,52 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* ── Step 2: TOTP ─────────────────────────────────── */}
+          {twoFactorPending ? (
+            <form onSubmit={handle2FASubmit} className="login-form" noValidate>
+
+              <p className="twofa-hint">
+                Código de verificação do autenticador para{' '}
+                <strong>{twoFactorPending.username}</strong>
+              </p>
+
+              <div className="form-field">
+                <label htmlFor="totp">Código 2FA (TOTP)</label>
+                <input
+                  id="totp"
+                  ref={totpRef}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={8}
+                  value={totpCode}
+                  onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="login-submit"
+                disabled={!canVerify2FA}
+              >
+                {isLoading ? <span className="btn-spinner" /> : 'Verificar'}
+              </button>
+
+              <button
+                type="button"
+                className="domain-toggle-btn"
+                onClick={() => { setTwoFactorPending(null); setError(''); setTotpCode('') }}
+              >
+                ← Voltar ao login
+              </button>
+
+            </form>
+          ) : (
+          /* ── Step 1: credentials ─────────────────────────── */
           <form onSubmit={handleSubmit} className="login-form" noValidate>
 
             <div className="form-field">
@@ -213,6 +296,7 @@ export default function LoginPage() {
             </button>
 
           </form>
+          )}
 
           <p className="login-footer">
             Powered by <strong>OpusTech</strong> · CloudStack API

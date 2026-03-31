@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
+import CloudPage from './pages/CloudPage'
 import DashboardPage from './pages/DashboardPage'
 
 export default function App() {
@@ -9,6 +10,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/cloud" element={<CloudPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route
             path="/dashboard"
