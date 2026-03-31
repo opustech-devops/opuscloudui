@@ -59,11 +59,11 @@ const ROLE_MAP: Record<string, SessionUser['role']> = {
 // ── Signature ────────────────────────────────────────────────
 
 function generateSignature(params: Record<string, string>, secretKey: string): string {
-  // CloudStack spec: lowercase BOTH key names and values, then URL-encode value
-  // https://docs.cloudstack.apache.org/en/latest/developersguide/dev.html
+  // CloudStack spec: lowercase key names, preserve value case, sort alphabetically
+  // Ref: https://docs.cloudstack.apache.org/en/latest/developersguide/dev.html
   const queryString = Object.entries(params)
     .sort(([a], [b]) => a.toLowerCase().localeCompare(b.toLowerCase()))
-    .map(([k, v]) => `${k.toLowerCase()}=${encodeURIComponent(v.toLowerCase())}`)
+    .map(([k, v]) => `${k.toLowerCase()}=${encodeURIComponent(v)}`)
     .join('&')
 
   const hmac = CryptoJS.HmacSHA1(queryString, secretKey)
@@ -537,6 +537,6 @@ export const cloudstack = new CloudStackClient()
 // This client authenticates exclusively via HMAC-SHA1 signed requests
 // and does NOT depend on a user session.
 export const cloudstackApiKey = new CloudStackClient({
-  apiKey:    'T7DJzQMOJ_oqwIBFuXxu51s3iGlolpiqnVBASQAVKX1VDQWVqqQJMwN1xyBZQtzBqcc6douhX7FKqcGDlrYZFQ',
-  secretKey: 'OlqzYuFKfTJzu7kRfLf0rNi4r-Yc6W6cqcVLHmGdFZ182FF9Nr7pmuMj7ifPHcxsnvCMOf3lXPr7Zr7gwqN2KQ',
+  apiKey:    '***REMOVED_API_KEY***',
+  secretKey: '***REMOVED_SECRET_KEY***',
 })

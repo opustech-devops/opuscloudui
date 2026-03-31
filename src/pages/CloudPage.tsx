@@ -2,6 +2,99 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import './CloudPage.css'
 import { cloudstackApiKey as cs } from '../api/cloudstack'
 
+// ── Credential Management ──────────────────────────────────────────────────────
+
+function loadStoredCredentials() {
+  try {
+    return JSON.parse(localStorage.getItem('cs-api-credentials') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveCredentials(key: string, secret: string) {
+  localStorage.setItem('cs-api-credentials', JSON.stringify({ key, secret }))
+}
+
+// ── Credentials Modal ──────────────────────────────────────────────────────────
+
+function CredentialsModal({ onSet, onClose }: { onSet: (key: string, secret: string) => void; onClose: () => void }) {
+  const stored = loadStoredCredentials()
+  const [key, setKey] = useState(stored.key || '')
+  const [secret, setSecret] = useState(stored.secret || '')
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 10000,
+    }}>
+      <div style={{
+        background: '#fff', padding: 24, borderRadius: 8, maxWidth: 400,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+      }}>
+        <h2 style={{ marginTop: 0, marginBottom: 16, color: '#1a1d23' }}>CloudStack API Credentials</h2>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#4b5563' }}>
+            API Key
+          </label>
+          <input
+            type="password"
+            value={key}
+            onChange={e => setKey(e.target.value)}
+            placeholder="Enter your CloudStack API key"
+            style={{
+              width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 4,
+              fontSize: 13, fontFamily: 'monospace', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#4b5563' }}>
+            Secret Key
+          </label>
+          <textarea
+            value={secret}
+            onChange={e => setSecret(e.target.value)}
+            placeholder="Enter your CloudStack secret key"
+            rows={3}
+            style={{
+              width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 4,
+              fontSize: 12, fontFamily: 'monospace', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px', borderRadius: 4, border: '1px solid #d1d5db',
+              background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              if (key.trim() && secret.trim()) {
+                saveCredentials(key, secret)
+                onSet(key, secret)
+                onClose()
+              }
+            }}
+            style={{
+              padding: '8px 16px', borderRadius: 4, border: 'none',
+              background: '#1070ca', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+            }}
+          >
+            Save & Test
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Section types ──────────────────────────────────────────────────────────────
 
 type Section =
@@ -1423,7 +1516,17 @@ const SECTION_TITLES: Record<Section, string> = {
 export default function CloudPage() {
   const [section, setSection] = useState<Section>('dashboard')
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [showCredentials, setShowCredentials] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
   const toastId = useRef(0)
+
+  useEffect(() => {
+    const stored = loadStoredCredentials()
+    if (stored.key && stored.secret) {
+      cs.setApiCredentials(stored.key, stored.secret)
+      setAuthenticated(true)
+    }
+  }, [])
 
   const addToast = useCallback((type: Toast['type'], message: string) => {
     const id = ++toastId.current
@@ -1432,6 +1535,12 @@ export default function CloudPage() {
       setToasts(prev => prev.filter(t => t.id !== id))
     }, 4000)
   }, [])
+
+  const handleSetCredentials = (key: string, secret: string) => {
+    cs.setApiCredentials(key, secret)
+    setAuthenticated(true)
+    addToast('success', 'Credentials configured!')
+  }
 
   const handleSelect = (s: Section) => {
     setSection(s)
@@ -1484,6 +1593,19 @@ export default function CloudPage() {
         <div className="cloud-topbar">
           <span className="cloud-topbar-title">{SECTION_TITLES[section]}</span>
           <div className="cloud-topbar-actions">
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowCredentials(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginRight: 12,
+              }}
+            >
+              <span style={{ fontSize: 14 }}>🔑</span>
+              {authenticated ? 'Credentials ✓' : 'Configure'}
+            </button>
             <span style={{ fontSize: 12, color: '#6b7280' }}>OpusCloud Management</span>
           </div>
         </div>
@@ -1494,6 +1616,12 @@ export default function CloudPage() {
       </div>
 
       <ToastContainer toasts={toasts} />
+      {showCredentials && (
+        <CredentialsModal
+          onSet={handleSetCredentials}
+          onClose={() => setShowCredentials(false)}
+        />
+      )}
     </div>
   )
 }
