@@ -32,9 +32,11 @@ const ROLE_MAP: Record<string, SessionUser['role']> = {
 // ── Signature ────────────────────────────────────────────────
 
 function generateSignature(params: Record<string, string>, secretKey: string): string {
+  // CloudStack spec: lowercase BOTH key names and values, then URL-encode value
+  // https://docs.cloudstack.apache.org/en/latest/developersguide/dev.html
   const queryString = Object.entries(params)
     .sort(([a], [b]) => a.toLowerCase().localeCompare(b.toLowerCase()))
-    .map(([k, v]) => `${k.toLowerCase()}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => `${k.toLowerCase()}=${encodeURIComponent(v.toLowerCase())}`)
     .join('&')
 
   const hmac = CryptoJS.HmacSHA1(queryString, secretKey)
