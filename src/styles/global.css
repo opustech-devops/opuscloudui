@@ -1,0 +1,78 @@
+/* ============================================================
+   OPUS CLOUD — Global Styles
+   Design System: Fira Sans | #003361 | #00BBDD | #071B2E
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Brand Colors */
+  --color-primary:        #003361;
+  --color-primary-dark:   #071B2E;
+  --color-accent:         #00BBDD;
+  --color-accent-dark:    #0099BB;
+  --color-accent-glow:    rgba(0, 187, 221, 0.25);
+  --color-accent-subtle:  rgba(0, 187, 221, 0.10);
+
+  /* Neutrals */
+  --color-white:      #FFFFFF;
+  --color-bg:         #F8F9FA;
+  --color-bg-input:   #F2F3F5;
+  --color-border:     #E0E4E8;
+  --color-text:       #181818;
+  --color-text-muted: #6B7280;
+  --color-text-light: #9CA3AF;
+
+  /* Feedback */
+  --color-error:        #DC3545;
+  --color-error-bg:     rgba(220, 53, 69, 0.08);
+  --color-error-border: rgba(220, 53, 69, 0.30);
+  --color-success:      #28A745;
+
+  /* Typography */
+  --font: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Radii */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   20px;
+  --radius-pill: 50px;
+
+  /* Shadows */
+  --shadow-sm:  0 2px 8px  rgba(0, 0, 0, 0.08);
+  --shadow-md:  0 4px 20px rgba(0, 0, 0, 0.12);
+  --shadow-lg:  0 20px 60px rgba(0, 0, 0, 0.25);
+
+  /* Transitions */
+  --transition: 0.2s ease;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  color: var(--color-text);
+  background: var(--color-primary-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Preserve autofill look */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px var(--color-bg-input) inset;
+  -webkit-text-fill-color: var(--color-text);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+button {
+  font-family: var(--font);
+}
