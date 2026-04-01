@@ -5,8 +5,14 @@
 set -e
 
 API_BASE="http://localhost:3001/client/api"
-OLD_KEY="***REMOVED_API_KEY***"
-OLD_SECRET="***REMOVED_SECRET_KEY***"
+# Set these env vars before running: export CS_API_KEY=... CS_SECRET=...
+OLD_KEY="${CS_API_KEY:-}"
+OLD_SECRET="${CS_SECRET:-}"
+
+if [ -z "$OLD_KEY" ] || [ -z "$OLD_SECRET" ]; then
+  echo "ERRO: defina CS_API_KEY e CS_SECRET como variáveis de ambiente."
+  exit 1
+fi
 
 echo "================================================"
 echo "CloudStack API Authentication Diagnostic"

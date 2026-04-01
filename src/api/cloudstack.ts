@@ -534,9 +534,9 @@ export class CloudStackClient {
 export const cloudstack = new CloudStackClient()
 
 // ── API-key-only client — used by /cloud page ─────────────────
-// This client authenticates exclusively via HMAC-SHA1 signed requests
-// and does NOT depend on a user session.
+// Credentials are loaded from environment variables (never hardcoded).
+// Copy .env.example to .env.local and fill in your CloudStack API credentials.
 export const cloudstackApiKey = new CloudStackClient({
-  apiKey:    '***REMOVED_API_KEY***',
-  secretKey: '***REMOVED_SECRET_KEY***',
+  apiKey:    import.meta.env.VITE_CS_API_KEY    as string | undefined,
+  secretKey: import.meta.env.VITE_CS_SECRET_KEY as string | undefined,
 })

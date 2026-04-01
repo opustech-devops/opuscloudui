@@ -106,12 +106,10 @@ All dashboard sections that rely on API calls will fail with 401:
 3. ✅ **Check Permissions**: Ensure API key has access to required CloudStack APIs
 4. ✅ **Fallback Option**: Revert to previous key if new one is not functional
 
-To revert, set credentials in `src/api/cloudstack.ts` line 540-542:
-```typescript
-export const cloudstackApiKey = new CloudStackClient({
-  apiKey:    '***REMOVED_API_KEY***',
-  secretKey: '***REMOVED_SECRET_KEY***',
-})
+To configure credentials, copy `.env.example` to `.env.local` and fill in the values:
+```
+VITE_CS_API_KEY=your_api_key_here
+VITE_CS_SECRET_KEY=your_secret_key_here
 ```
 
 ---

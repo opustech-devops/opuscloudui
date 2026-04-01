@@ -14,8 +14,15 @@ import crypto from 'crypto'
 import { URLSearchParams } from 'url'
 
 const HOST    = 'opus1.cloud'
-const API_KEY = '***REMOVED_API_KEY***'
-const SECRET  = '***REMOVED_SECRET_KEY***'
+// Set CS_API_KEY and CS_SECRET env vars before running:
+//   CS_API_KEY=your_key CS_SECRET=your_secret node diagnose.mjs
+const API_KEY = process.env.CS_API_KEY || ''
+const SECRET  = process.env.CS_SECRET  || ''
+
+if (!API_KEY || !SECRET) {
+  console.error('\x1b[31mERRO: defina CS_API_KEY e CS_SECRET como variáveis de ambiente.\x1b[0m')
+  process.exit(1)
+}
 
 const [,, USER = '', PASS = '', DOMAIN = '/'] = process.argv
 
